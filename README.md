@@ -188,6 +188,89 @@ Posições abertas fora do StratCore (painel da Binance, app mobile ou APIs exte
 
 ---
 
+## 📂 Arquivos Críticos Validados (Não Regredir)
+
+Os arquivos abaixo foram **validados manualmente em infra real (Binance Testnet)** e constituem o **núcleo estável do StratCore**.  
+Qualquer alteração nesses arquivos **exige novo ciclo completo de validação**.
+
+### 🔧 Camada Exchange
+- `app/Services/Exchange/BinanceFuturesAdapter.php`  
+  - Contrato estável e explícito
+  - Métodos validados:
+    - `getAccountInfo`
+    - `getPosition`
+    - `getOpenOrders`
+    - `getMarkPrice`
+  - Binance tratada como **verdade absoluta**
+
+---
+
+### ▶️ Execução e Abertura de Posição
+- `app/Services/Trading/TradeGuard.php`  
+  - Validação de risco antes da execução
+  - Contrato de preço explícito (markPrice como float)
+- `app/Services/Trading/ExecutionEngine.php`  
+  - Executor “burro”
+  - Não decide estratégia
+  - Apenas envia ordens para a Binance
+
+---
+
+### 🔁 Sincronização
+- `app/Services/Trading/PositionSynchronizer.php`  
+  - **Read-only**
+  - Sincroniza apenas posições OPEN já existentes no banco
+  - Não cria posição
+  - Não cancela ordens
+  - Idempotente
+
+---
+
+### 🧠 Gestão de Posição (Estado Atual)
+- **Nenhum serviço automático de STOP / TP / Trailing ativo**
+- Serviços antigos (`DynamicPositionManager`, `PartialCloseManager`, `Tp2Manager`)
+  estão **desativados e fora do fluxo**
+
+---
+
+### 🗄️ Persistência
+- `app/Models/Position.php`
+- `app/Models/TradeEvent.php`
+
+Esses modelos refletem **estado factual**, não intenção de trading.
+
+---
+
+### ⛔ Automação
+- `routes/console.php`  
+  - Scheduler **comentado**
+- Cron do sistema **desligado**
+- Nenhum job, listener ou loop automático ativo
+
+---
+
+📌 **Regra prática:**  
+Se um bug aparecer, **o primeiro passo é verificar se algum desses arquivos foi alterado** sem validação completa.
+
+## ⚠️ Regra de Transição (Anti-Regressão)
+
+Durante a fase atual de estabilização arquitetural, **nenhuma funcionalidade nova pode ser adicionada** enquanto **TODAS** as condições abaixo não forem atendidas:
+
+- O `PositionStopManager` **não estiver isolado** como serviço único de STOP / BE / TP / Trailing  
+- **Não existir teste manual validado em Binance Testnet**, cobrindo:
+  - SL inicial
+  - Break-even
+  - TP1 / TP2
+  - Trailing
+- **Não houver log explícito e auditável** para **cada decisão de stop**, incluindo:
+  - motivo
+  - preço
+  - estado da posição
+  - timestamp
+
+📌 Esta regra existe para impedir regressões causadas por  
+“apenas mais um ajuste rápido” fora de um ciclo completo de validação.
+
 ## ▶️ PRÓXIMO PASSO
 
 ### 🔥 Criar o `PositionStopManager`
