@@ -182,6 +182,36 @@ Nenhuma regra de ambiente vaza para:
 
 ---
 
+## 🧠 Guardrails Arquiteturais
+
+### 🔒 Single Writer Rule (Regra do Escritor Único)
+
+**Regra explícita e obrigatória do StratCore:**
+
+> **Apenas o `PositionStopManager` pode criar, cancelar ou substituir ordens condicionais
+(STOP, Break-even, TP, Trailing) de uma posição.**
+
+Implicações diretas:
+
+- Nenhum outro serviço pode:
+  - criar STOP
+  - mover STOP
+  - cancelar STOP
+  - executar TP parcial ou total
+- `ExecutionEngine` **não decide** nada — apenas executa ordens quando solicitado.
+- `PositionSynchronizer` é **read-only**.
+- Frontend **nunca** cria ordens condicionais diretamente.
+
+📌 Esta regra existe para:
+- evitar loops de cancelamento/criação
+- impedir estados divergentes entre banco e Binance
+- garantir previsibilidade e auditabilidade
+- proteger o sistema contra “ajustes rápidos” fora do fluxo correto
+
+Qualquer violação desta regra é considerada **erro arquitetural**, não bug pontual.
+
+---
+
 ### 🗄️ Persistência
 
 - `Position.php`  
