@@ -298,3 +298,23 @@ Será criado um **serviço único**, responsável por:
 
 Este README representa o **estado real e validado do sistema**  
 e deve ser usado como **base obrigatória** para qualquer novo desenvolvimento.
+
+🧠 Decisão Arquitetural do StratCore
+
+Essa diferença é tratada exclusivamente no BinanceFuturesAdapter.
+
+Nenhuma regra de ambiente vaza para:
+
+PositionStopManager
+
+ExecutionEngine
+
+Frontend
+
+O domínio de trading permanece agnóstico ao ambiente.
+
+📌 Regra de Ouro
+
+Se uma ordem condicional não aparece na Binance Demo/Testnet,
+verifique primeiro o endpoint (/order vs /algo/order)
+antes de suspeitar de lógica, cache ou sincronização.
