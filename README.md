@@ -4,14 +4,14 @@
 
 StratCore é um sistema de trading automatizado com foco em **controle absoluto de risco, previsibilidade arquitetural e fidelidade à Binance**, oferecendo:
 
-- Binance Futures USDT-M
-- Stop Loss **gerenciado internamente**
-- Break-even automático
-- Trailing Stop
-- Partial Take Profit (TP1 / TP2)
-- Controle de risco diário e global
-- Banco de dados refletindo **apenas fatos reais da Binance**
-- Execução manual via Frontend ou automações internas
+- Binance Futures USDT-M  
+- Stop Loss **gerenciado internamente**  
+- Break-even automático  
+- Trailing Stop  
+- Partial Take Profit (TP1 / TP2)  
+- Controle de risco diário e global  
+- Banco de dados refletindo **estado factual**, não intenção  
+- Execução manual via Frontend ou automações internas  
 
 ---
 
@@ -21,19 +21,19 @@ O sistema **já estava funcionando corretamente**.
 
 Durante uma sequência de ajustes e refatorações, o projeto entrou em instabilidade por causa de:
 
-- múltiplas alterações simultâneas
-- perda do contrato original do `BinanceFuturesAdapter`
-- sobreposição de responsabilidades
-- tentativa de “melhorar” sem isolar comportamento antigo
-- alterações que **não respeitaram o estado anterior validado**
+- múltiplas alterações simultâneas  
+- perda do contrato original do `BinanceFuturesAdapter`  
+- sobreposição de responsabilidades  
+- tentativa de “melhorar” sem isolar comportamento antigo  
+- alterações que **não respeitaram o estado anterior validado**  
 
 ### Resultado prático observado
-- Stops sendo cancelados sozinhos
-- Ordens sumindo da Binance
-- Ordens canceladas na Binance mas abertas no banco
-- Posições abertas no banco com `positionAmt = 0`
-- Erros de runtime mascarando erros arquiteturais
-- Perda de previsibilidade e confiança
+- Stops sendo cancelados sozinhos  
+- Ordens sumindo da Binance  
+- Ordens canceladas na Binance mas abertas no banco  
+- Posições abertas no banco com `positionAmt = 0`  
+- Erros de runtime mascarando erros arquiteturais  
+- Perda de previsibilidade e confiança  
 
 ⚠️ **Nada disso foi falha de lógica de trading.**  
 Foi **falha arquitetural e de processo**.
@@ -45,9 +45,9 @@ Foi **falha arquitetural e de processo**.
 > **Não houve isolamento do comportamento antigo estável.**
 
 Tentamos:
-- corrigir bugs
-- melhorar arquitetura
-- adicionar segurança
+- corrigir bugs  
+- melhorar arquitetura  
+- adicionar segurança  
 
 Tudo ao mesmo tempo.
 
@@ -61,16 +61,16 @@ Tudo ao mesmo tempo.
 
 **Regra absoluta.**
 
-- A Binance cancela ordens automaticamente
+- A Binance cancela ordens automaticamente  
 - Quebra:
-  - Break-even
-  - Trailing Stop
-  - TP1 / TP2
-- Remove o controle do sistema
+  - Break-even  
+  - Trailing Stop  
+  - TP1 / TP2  
+- Remove o controle do sistema  
 
 ✅ Stop gerenciado **sempre** deve ser:
-- `STOP_MARKET`
-- `reduceOnly = true`
+- `STOP_MARKET`  
+- `reduceOnly = true`  
 
 ---
 
@@ -79,12 +79,12 @@ Tudo ao mesmo tempo.
 Essa foi a **principal causa do caos**.
 
 Houve situações como:
-- `BreakEvenManager` criando stop
-- `TrailingStopManager` criando stop
-- `PositionFailSafe` recriando stop
-- `PartialCloseManager` fechando parcial
-- `Tp2Manager` ativando trailing
-- `OrderSynchronizer` cancelando stop
+- `BreakEvenManager`  
+- `TrailingStopManager`  
+- `PositionFailSafe`  
+- `PartialCloseManager`  
+- `Tp2Manager`  
+- `OrderSynchronizer`  
 
 👉 Resultado: **loops, cancelamentos e comportamento imprevisível.**
 
@@ -97,224 +97,175 @@ Houve situações como:
 
 Erros reais que ocorreram:
 
-- Métodos chamados que não existiam (`getMarkPrice`)
-- Imports incorretos
-- Adapter retornando formatos diferentes
-- Código assumindo chaves inexistentes
-- Mudança silenciosa de comportamento
+- Métodos inexistentes sendo chamados  
+- Imports incorretos  
+- Retornos inconsistentes  
+- Suposição de chaves inexistentes  
+- Mudança silenciosa de comportamento  
 
 👉 O Adapter deixou de ser previsível.
 
 ---
 
-## ✅ O QUE FOI FEITO (VALIDAÇÕES REAIS)
+## ✅ O QUE FOI FEITO (ESTADO ATUAL VALIDADO)
 
-### 🔧 BinanceFuturesAdapter — VALIDADO
-- Contrato explícito
-- Retornos consistentes
-- Erros não silenciosos
-- Testado em **Binance Testnet**
-- Métodos validados:
+### 🔧 BinanceFuturesAdapter — VALIDADO E ISOLADO
+
+- Contrato explícito  
+- Retornos consistentes  
+- Erros **não silenciosos**  
+- Testado em **Binance Demo/Testnet**  
+- Métodos estáveis:
   - `getAccountInfo`
   - `getPosition`
   - `getOpenOrders`
   - `getMarkPrice`
+  - `placeOrder` (com simulação controlada)
 
----
+#### 📌 Decisão Arquitetural Importante
 
-### 🔁 PositionSynchronizer — READ ONLY
-- Sincroniza **apenas posições OPEN já existentes no banco**
-- Não cria posição
-- Não cancela ordens
-- Não cria stop
-- Idempotente
-- Testado manualmente em infra real
+Diferença entre ambientes é tratada **exclusivamente no Adapter**:
+
+| Ambiente | STOP / TP |
+|--------|-----------|
+| Mainnet | `/fapi/v1/order` |
+| Demo/Testnet | **Simulação controlada** |
+
+Nenhuma regra de ambiente vaza para:
+- `PositionStopManager`
+- `ExecutionEngine`
+- Frontend
+
+📌 **Domínio de trading é 100% agnóstico ao ambiente.**
 
 ---
 
 ### ▶️ Abertura de posição — ESTÁVEL
-- Abertura via **Frontend**
-- Execução via `TradeGuard` + `ExecutionEngine`
-- Registro correto no banco
-- Binance como verdade absoluta
-- Testado com:
-  - abertura
-  - sincronização
-  - idempotência
+
+- Abertura via **Frontend**  
+- Execução via `TradeGuard` + `ExecutionEngine`  
+- Registro correto no banco  
+- Binance como verdade absoluta  
+- Testado manualmente:
+  - abertura  
+  - sincronização  
+  - idempotência  
 
 ---
 
-### 🔒 Automação — DESLIGADA
-Durante a fase de estabilização:
+### 🔁 PositionSynchronizer — READ ONLY
 
-- Cron do sistema **desligado**
-- `schedule:run` **comentado**
-- Nenhum job, listener ou loop automático ativo
-- Execução **100% manual e observável**
-
----
-
-## 📌 Regra de Ouro — Controle de Posições
-
-O StratCore é um sistema de trading com **controle fechado de domínio**.
-
-- Apenas posições **abertas pelo StratCore** são gerenciadas.
-- Isso inclui posições abertas:
-  - via Frontend
-  - via automações internas
-  - via serviços do próprio sistema
-
-Posições abertas fora do StratCore (painel da Binance, app mobile ou APIs externas)
-**não são importadas nem gerenciadas**, mesmo que existam na exchange.
-
-📌 Isso garante:
-- previsibilidade
-- ausência de loops
-- controle total de risco
-- consistência entre banco e Binance
+- Sincroniza **apenas posições OPEN já existentes no banco**  
+- Não cria posição  
+- Não cancela ordens  
+- Não cria stop  
+- Idempotente  
+- Testado manualmente em infra real  
 
 ---
 
-## 🧱 ESTADO ATUAL DO SISTEMA
+### 🧠 Gestão de Posição — EM ISOLAMENTO CONTROLADO
 
-- ✔️ Core estável  
-- ✔️ Adapter confiável  
-- ✔️ Abertura de posição validada  
-- ✔️ Sincronização idempotente  
-- ✔️ Nenhuma automação oculta  
-- ✔️ Nenhum serviço concorrente ativo  
+- `PositionStopManager` criado como **serviço único**  
+- Responsável por:
+  - SL inicial  
+  - Break-even  
+  - (futuro) TP1 / TP2  
+  - (futuro) Trailing  
+- Execução manual via Tinker durante validação  
+- Gera `TradeEvent` **auditável**
 
-👉 **Sistema pronto para evolução segura.**
-
----
-
-## 📂 Arquivos Críticos Validados (Não Regredir)
-
-Os arquivos abaixo foram **validados manualmente em infra real (Binance Testnet)** e constituem o **núcleo estável do StratCore**.  
-Qualquer alteração nesses arquivos **exige novo ciclo completo de validação**.
-
-### 🔧 Camada Exchange
-- `app/Services/Exchange/BinanceFuturesAdapter.php`  
-  - Contrato estável e explícito
-  - Métodos validados:
-    - `getAccountInfo`
-    - `getPosition`
-    - `getOpenOrders`
-    - `getMarkPrice`
-  - Binance tratada como **verdade absoluta**
-
----
-
-### ▶️ Execução e Abertura de Posição
-- `app/Services/Trading/TradeGuard.php`  
-  - Validação de risco antes da execução
-  - Contrato de preço explícito (markPrice como float)
-- `app/Services/Trading/ExecutionEngine.php`  
-  - Executor “burro”
-  - Não decide estratégia
-  - Apenas envia ordens para a Binance
-
----
-
-### 🔁 Sincronização
-- `app/Services/Trading/PositionSynchronizer.php`  
-  - **Read-only**
-  - Sincroniza apenas posições OPEN já existentes no banco
-  - Não cria posição
-  - Não cancela ordens
-  - Idempotente
-
----
-
-### 🧠 Gestão de Posição (Estado Atual)
-- **Nenhum serviço automático de STOP / TP / Trailing ativo**
-- Serviços antigos (`DynamicPositionManager`, `PartialCloseManager`, `Tp2Manager`)
-  estão **desativados e fora do fluxo**
+⚠️ Em Demo/Testnet:
+- Ordens condicionais **não aparecem na Binance**
+- Banco + eventos representam o **estado lógico validado**
+- Comportamento esperado e documentado
 
 ---
 
 ### 🗄️ Persistência
-- `app/Models/Position.php`
-- `app/Models/TradeEvent.php`
 
-Esses modelos refletem **estado factual**, não intenção de trading.
+- `Position.php`  
+- `TradeEvent.php`  
+
+Refletem **estado factual do sistema**, não intenção de trading.
+
+---
+
+### ⛔ Automação — DESLIGADA
+
+Durante estabilização:
+
+- Cron **desligado**  
+- `schedule:run` **comentado**  
+- Nenhum job, listener ou loop ativo  
+- Execução **manual, previsível e auditável**
 
 ---
 
-### ⛔ Automação
-- `routes/console.php`  
-  - Scheduler **comentado**
-- Cron do sistema **desligado**
-- Nenhum job, listener ou loop automático ativo
+## 📂 Arquivos Críticos (Anti-Regressão)
 
----
+Qualquer alteração exige **novo ciclo completo de validação**:
+
+- `BinanceFuturesAdapter.php`
+- `ExecutionEngine.php`
+- `TradeGuard.php`
+- `PositionStopManager.php`
+- `PositionSynchronizer.php`
+- `Position.php`
+- `TradeEvent.php`
 
 📌 **Regra prática:**  
-Se um bug aparecer, **o primeiro passo é verificar se algum desses arquivos foi alterado** sem validação completa.
+Se algo quebrar, **verifique primeiro esses arquivos**.
+
+---
 
 ## ⚠️ Regra de Transição (Anti-Regressão)
 
-Durante a fase atual de estabilização arquitetural, **nenhuma funcionalidade nova pode ser adicionada** enquanto **TODAS** as condições abaixo não forem atendidas:
+Nenhuma funcionalidade nova pode ser adicionada enquanto:
 
-- O `PositionStopManager` **não estiver isolado** como serviço único de STOP / BE / TP / Trailing  
-- **Não existir teste manual validado em Binance Testnet**, cobrindo:
+- `PositionStopManager` não estiver **totalmente validado**
+- Não houver teste manual cobrindo:
   - SL inicial
   - Break-even
-  - TP1 / TP2
-  - Trailing
-- **Não houver log explícito e auditável** para **cada decisão de stop**, incluindo:
-  - motivo
-  - preço
-  - estado da posição
-  - timestamp
-
-📌 Esta regra existe para impedir regressões causadas por  
-“apenas mais um ajuste rápido” fora de um ciclo completo de validação.
-
-## ▶️ PRÓXIMO PASSO
-
-### 🔥 Criar o `PositionStopManager`
-
-Será criado um **serviço único**, responsável por:
-
-- Criar SL inicial
-- Aplicar Break-even
-- Executar TP1 / TP2
-- Ativar Trailing Stop
-- Atualizar estado da posição
-- Chamar **apenas** o `ExecutionEngine`
-
-📌 Regras obrigatórias:
-- Um único ponto de decisão
-- Ordem fixa de execução
-- Nenhum loop
-- Nenhum outro serviço pode tocar em STOP / TP
-- Testado primeiro na Binance Testnet
-- Automação só será reativada após validação completa
+  - Cancelamento e recriação de stop
+- Não existir `TradeEvent` explícito para **cada decisão**
 
 ---
 
+📌 **Regra de Ouro Final**
 
+Se uma ordem condicional **não aparece na Binance Demo/Testnet**:
 
-Este README representa o **estado real e validado do sistema**  
-e deve ser usado como **base obrigatória** para qualquer novo desenvolvimento.
+> Verifique **primeiro o endpoint e o ambiente**  
+> antes de suspeitar de lógica, cache ou sincronização.
 
-🧠 Decisão Arquitetural do StratCore
+---
 
-Essa diferença é tratada exclusivamente no BinanceFuturesAdapter.
+## ▶️ PRÓXIMO PASSO (ATUAL)
 
-Nenhuma regra de ambiente vaza para:
+### 🔥 Validar Break-Even (1R) de ponta a ponta
 
-PositionStopManager
+Objetivo imediato:
 
-ExecutionEngine
+- Validar **exclusivamente** o Break-even  
+- Sem TP  
+- Sem Trailing  
+- Sem automação  
 
-Frontend
+Checklist obrigatório:
 
-O domínio de trading permanece agnóstico ao ambiente.
+- [ ] SL inicial criado corretamente  
+- [ ] Movimento ≥ 1R dispara BE  
+- [ ] Stop anterior cancelado  
+- [ ] Novo STOP no `entry_price`  
+- [ ] `break_even_applied = true`  
+- [ ] `TradeEvent::BREAK_EVEN_APPLIED` gerado  
+- [ ] Nenhum loop  
+- [ ] Nenhuma ação dupla  
 
-📌 Regra de Ouro
+📌 **Somente após isso**:
+- TP1 será introduzido  
+- Depois TP2  
+- Por último Trailing  
+- E **só então** automação será reativada  
 
-Se uma ordem condicional não aparece na Binance Demo/Testnet,
-verifique primeiro o endpoint (/order vs /algo/order)
-antes de suspeitar de lógica, cache ou sincronização.
