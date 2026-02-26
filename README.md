@@ -1,5 +1,31 @@
 # README — StratCore
 
+## 🧱 BASELINE v1.0 — VALIDADO (ESTADO CONGELADO)
+
+Este repositório encontra-se no estado **Baseline v1.0 — VALIDADO**.
+
+Isso significa que os seguintes componentes foram **implementados, testados manualmente e validados de ponta a ponta**:
+
+- STOP inicial
+- Break-even (1R)
+- TP1 (Partial Take Profit)
+- TP2 (Final Take Profit)
+- Trailing Stop (por R)
+- BinanceFuturesAdapter (contrato estável)
+- Persistência factual
+- Guardrails arquiteturais
+
+📌 **Regra de Ouro**  
+Nenhuma funcionalidade nova pode ser adicionada sem:
+1. Criar um **novo ciclo isolado**
+2. Manter este baseline **inalterado**
+3. Validar manualmente via **Tinker**
+4. Documentar explicitamente no README
+
+Alterações diretas neste estado são consideradas **regressão arquitetural**.
+
+---
+
 ## 🎯 Objetivo do Sistema
 
 StratCore é um sistema de trading automatizado com foco em **controle absoluto de risco, previsibilidade arquitetural e fidelidade à Binance**, oferecendo:
@@ -7,7 +33,7 @@ StratCore é um sistema de trading automatizado com foco em **controle absoluto 
 - Binance Futures USDT-M
 - Stop Loss **gerenciado internamente**
 - Break-even automático
-- Trailing Stop
+- Trailing Stop (por R)
 - Partial Take Profit (TP1 / TP2)
 - Controle de risco diário e global
 - Banco de dados refletindo **estado factual**, não intenção
@@ -76,12 +102,12 @@ Tudo ao mesmo tempo.
 
 ### 2️⃣ Mais de um serviço mexendo em STOP / TP / fechamento
 
-Essa foi a **principal causa do caos**.
-
 📌 **Regra definida:**
 > Apenas **UM serviço** pode decidir e executar STOP / BE / TP / Trailing.
 
 Esse serviço é o **`PositionStopManager`**.
+
+Violação desta regra é **erro arquitetural**, não bug.
 
 ---
 
@@ -115,129 +141,153 @@ Métodos estáveis:
 - `getMarkPrice`
 - `placeOrder` (com simulação controlada)
 
-#### 📌 Decisão Arquitetural Importante
-
-Diferença entre ambientes é tratada **exclusivamente no Adapter**:
-
-| Ambiente | STOP / TP |
-|--------|-----------|
-| Mainnet | `/fapi/v1/order` |
-| Demo/Testnet | **Simulação controlada** |
-
-Nenhuma regra de ambiente vaza para:
-- `PositionStopManager`
-- `ExecutionEngine`
-- Frontend
-
-📌 **Domínio de trading é 100% agnóstico ao ambiente.**
+📌 Diferença entre ambientes é tratada **exclusivamente no Adapter**.  
+O domínio de trading é **100% agnóstico ao ambiente**.
 
 ---
 
 ### ▶️ Abertura de posição — VALIDADA
 
 - Abertura via **Frontend**
-- Execução via `TradeGuard` + `ExecutionEngine`
-- Registro correto no banco
+- Execução via `TradeGuard` → `ExecutionEngine`
 - Binance como verdade absoluta
-- Testado manualmente:
-  - abertura
-  - sincronização
-  - idempotência
+- Registro correto no banco
+- Testado manualmente (idempotente)
 
 ---
 
 ### 🔁 PositionSynchronizer — READ ONLY
 
-- Sincroniza **apenas posições OPEN já existentes no banco**
+- Sincroniza **apenas posições OPEN**
 - Não cria posição
 - Não cancela ordens
 - Não cria stop
 - Idempotente
-- Testado manualmente
 
 ---
 
 ### 🧠 Gestão de Posição — ISOLADA E CONTROLADA
 
-- `PositionStopManager` criado como **serviço único**
+- `PositionStopManager` como **writer único**
 - Responsável por:
   - SL inicial
-  - Break-even (**VALIDADO**)
-  - (futuro) TP1 / TP2
-  - (futuro) Trailing
-- Execução manual via Tinker durante validação
-- Cada decisão gera `TradeEvent` **auditável**
+  - Break-even
+  - TP1 / TP2
+  - Trailing Stop
+- Execução manual via **Tinker**
+- Cada decisão gera um `TradeEvent` auditável
 
 ⚠️ Em Demo/Testnet:
 - Ordens condicionais **não aparecem na Binance**
 - Banco + eventos representam o **estado lógico validado**
-- Comportamento esperado e documentado
 
 ---
 
 ## 🗄️ Persistência — CONTRATO VALIDADO
 
-### Position
-- `stop_order_id` persistido corretamente
-- Reflete **estado factual**, não intenção
+### `positions`
+Tabela de **estado factual da posição**.
 
-### TradeEvent
-Cada decisão persiste:
-- `action`
-- `price`
-- `reason`
-- `snapshot`
+Campos críticos:
+- entry_price
+- size / remaining_size
+- initial_stop
+- stop_price / current_stop
+- stop_order_id
+- break_even_applied / break_even_at
+- tp1_price / tp1_applied / tp1_closed_at
+- tp2_price / tp2_applied / tp2_closed_at
+- trailing_active / trailing_started_at / last_trailing_stop
+- status / state
+- last_stop_recreated_at
 
-📌 **Auditabilidade confirmada.**
-
----
-
-## ✅ BREAK-EVEN (1R) — VALIDADO DE PONTA A PONTA
-
-### Validação manual concluída
-
-- SL inicial criado corretamente
-- Movimento ≥ 1R dispara Break-even
-- STOP anterior cancelado
-- Novo STOP criado em `entry_price`
-- `break_even_applied = true`
-- `break_even_at` preenchido
-- `stop_order_id` atualizado
-- `TradeEvent::BREAK_EVEN_APPLIED` gerado
-- Nenhum loop
-- Nenhuma ação dupla
-
-📌 Estado final validado no banco:
-- `current_stop = entry_price`
-- `stop_order_id = sim_...`
-- Estado consistente e previsível
+📌 **Nunca reflete intenção, apenas fatos ocorridos.**
 
 ---
 
-## 🧠 Guardrails Arquiteturais
+### `trade_events`
+Tabela de auditoria **imutável**.
 
-### 🔒 Single Writer Rule (Regra do Escritor Único)
+Campos críticos:
+- position_id
+- action
+- price
+- reason
+- snapshot
+- meta_json
+- created_at
 
-> **Apenas o `PositionStopManager` pode criar, cancelar ou substituir ordens condicionais
-(STOP, Break-even, TP, Trailing) de uma posição.**
+📌 Cada decisão gera **exatamente um evento**.
 
-Implicações:
-- `ExecutionEngine` **não decide**
-- `PositionSynchronizer` é **read-only**
-- Frontend **nunca cria ordens condicionais**
+---
 
-Violação desta regra é considerada **erro arquitetural**, não bug.
+## ✅ BREAK-EVEN (1R) — VALIDADO
+- Dispara após 1R
+- Cancela stop anterior
+- Move stop para `entry_price`
+- Evento `BREAK_EVEN_APPLIED`
+- Sem loops ou ações duplicadas
+
+---
+
+## ✅ TP1 — PARTIAL TAKE PROFIT — VALIDADO
+- MARKET + reduceOnly
+- 50% do tamanho original
+- Atualiza `remaining_size`
+- Evento `TP1_APPLIED`
+- Não altera stop ou BE
+
+---
+
+## ✅ TP2 — FINAL TAKE PROFIT — VALIDADO
+- Executa somente após TP1
+- Fecha 100% do `remaining_size`
+- Marca posição como CLOSED
+- Evento `TP2_APPLIED`
+
+---
+
+## ✅ TRAILING STOP (POR R) — VALIDADO
+
+### Modelo
+- Trailing discreto por R
+- R = |entry_price - initial_stop|
+
+### Parâmetros
+- trailing_start_r = 3
+- trailing_step_r = 1
+
+### Regras
+- Só inicia após Break-even
+- Só com posição OPEN
+- Evento `TRAILING_STARTED`
+- Não move stop no START
+- Move stop em degraus de 1R
+- Nunca regride
+- Evento `TRAILING_MOVED`
+
+📌 Trailing não interfere em BE / TP1 / TP2.
+
+---
+
+## 🧱 Stack Técnica — Baseline v1.0
+
+- PHP: 8.3.6
+- Laravel: 12.51.0
+- Livewire: 4.1.4
+- Banco de Dados: MySQL / MariaDB
+- Exchange: Binance Futures USDT-M
+
+📌 Versões fazem parte do contrato.
 
 ---
 
 ## ⛔ Automação — DESLIGADA
 
-Durante estabilização:
-
 - Cron desligado
-- `schedule:run` comentado
-- Nenhum job ativo
-- Execução **manual, previsível e auditável**
+- Scheduler inativo
+- Nenhum Job ativo
+- Execução manual via **Tinker**
 
 ---
 
@@ -245,34 +295,17 @@ Durante estabilização:
 
 Qualquer alteração exige **novo ciclo completo de validação**:
 
-- `BinanceFuturesAdapter.php`
-- `ExecutionEngine.php`
-- `TradeGuard.php`
-- `PositionStopManager.php`
-- `PositionSynchronizer.php`
-- `Position.php`
-- `TradeEvent.php`
-
-📌 **Regra prática:**
-Se algo quebrar, **verifique primeiro esses arquivos**.
+- BinanceFuturesAdapter.php
+- ExecutionEngine.php
+- TradeGuard.php
+- PositionStopManager.php
+- PositionSynchronizer.php
+- Position.php
+- TradeEvent.php
 
 ---
 
-## 🧪 MODO DE TRABALHO (IMPORTANTE PARA NOVOS CHATS)
-
-Este projeto **não evolui por tentativa e erro**.
-
-### Forma oficial de trabalhar
-
-- Um passo por vez
-- Execução sempre manual
-- Via **Tinker**
-- Sempre com:
-  - **1 comando**
-  - **1 verificação**
-  - **1 conclusão**
-
-Padrão utilizado em todas as validações:
+## 🧪 MODO DE TRABALHO (OBRIGATÓRIO)
 
 ```php
 // Executa UMA decisão
